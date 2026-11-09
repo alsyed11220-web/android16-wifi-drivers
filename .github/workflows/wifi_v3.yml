@@ -1,0 +1,55 @@
+name: Infinix-WiFi-Drivers-V3
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build_v3:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Free Disk Space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          df -h
+
+      - name: Install Build Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc bison build-essential ccache curl flex git libssl-dev libelf-dev python3 zstd lz4 clang lld llvm
+
+      - name: Clone Android 16 6.12 Kernel from GitHub
+        run: |
+          git clone --depth=1 -b android16-6.12 https://github.com kernel
+
+      - name: Configure WiFi Drivers
+        working-directory: kernel
+        run: |
+          make ARCH=arm64 LLVM=1 gki_defconfig
+          ./scripts/config --set-str CONFIG_LOCALVERSION "-5-gb575a0b6e647-ab14355190-4k"
+          ./scripts/config -d CONFIG_LOCALVERSION_AUTO
+          ./scripts/config -d CONFIG_MODULE_SIG
+          ./scripts/config -d CONFIG_MODVERSIONS
+          ./scripts/config -m CONFIG_MT7601U
+          ./scripts/config -m CONFIG_RT2X00
+          ./scripts/config -m CONFIG_RT2800USB
+          ./scripts/config -m CONFIG_RTL8XXXU
+          ./scripts/config -m CONFIG_MT76x2U
+          ./scripts/config -m CONFIG_ATH9K_HTC
+          make ARCH=arm64 LLVM=1 olddefconfig
+
+      - name: Compile WiFi Modules (.ko)
+        working-directory: kernel
+        run: |
+          make ARCH=arm64 LLVM=1 -j$(nproc) modules_prepare
+          make ARCH=arm64 LLVM=1 -j$(nproc) M=drivers/net/wireless modules
+          mkdir -p ../ready_modules
+          find drivers/net/wireless -name "*.ko" -exec cp {} ../ready_modules/ \;
+          ls -lh ../ready_modules/
+
+      - name: Upload WiFi Modules
+        uses: actions/upload-artifact@v4
+        with:
+          name: Infinix-WiFi-Modules-V3
+          path: ready_modules/*.ko
